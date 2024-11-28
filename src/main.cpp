@@ -13,9 +13,6 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
-
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <stb_image_write.h>
 #include <algorithm>
 
 #include "fastbev/fastbev.hpp"
@@ -142,9 +139,9 @@ int main(int argc, char** argv){
     auto bboxes = core->forward((const unsigned char**)images.data(), stream);
     
     // evaluate inference time
-    for (int i = 0; i < 5; ++i) {
-      core->forward((const unsigned char**)images.data(), stream);
-    }
+    // for (int i = 0; i < 5; ++i) {
+    //   core->forward((const unsigned char**)images.data(), stream);
+    // }
 
     std::string save_file_name = Save_Dir + ".txt";
     SaveBoxPred(bboxes, save_file_name);

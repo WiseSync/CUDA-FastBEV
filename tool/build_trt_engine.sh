@@ -64,11 +64,11 @@ function compile_trt_model(){
     input_flags="--inputIOFormats="
     output_flags="--outputIOFormats="
     for i in $(seq 1 $number_of_input); do
-        input_flags+=fp16:chw,
+        input_flags+=fp16:chw
     done
 
     for i in $(seq 1 $number_of_output); do
-        output_flags+=fp16:chw,
+        output_flags+=fp16:chw
     done
 
     if [ "$need_output_flg" == "need" ]; then

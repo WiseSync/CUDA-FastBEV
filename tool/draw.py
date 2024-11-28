@@ -216,7 +216,7 @@ def main(data_root, pred_path, vis_path):
 if __name__ == '__main__':
 
     data_root  = 'example-data'
-    pred_path  = 'CUDA-FastBEV/model/resnet18/result.txt'
+    pred_path  = 'model/resnet18int8/result.txt'
     vis_path   = os.path.join(data_root, "sample0_vis.png")
 
     main(data_root, pred_path, vis_path)

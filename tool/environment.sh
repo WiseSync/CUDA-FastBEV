@@ -1,15 +1,24 @@
 #!/bin/bash
 
-export TensorRT_Lib=/home/Mandy/code/TensorRT-8.6.1.6/lib
-export TensorRT_Inc=/home/Mandy/code/TensorRT-8.6.1.6/include
-export TensorRT_Bin=/home/Mandy/code/TensorRT-8.6.1.6/bin
+# dpkg -i nv-tensorrt-repo-ubuntu1804-cuda10.2-trt7.1.3.4-ga-20200617_1–1_amd64.deb
+# apt-key add /var/nv-tensorrt-repo-cuda10.2-trt7.1.3.4-ga-20200617/7fa2af80.pub
+# 安裝 tensorrt
+# apt-get update
+# apt-get install tensorrt
+# 下載 tensorrt 依賴包
+# apt-get install python3-libnvinfer-dev
 
-export CUDA_Lib=/usr/local/cuda/lib64
-export CUDA_Inc=/usr/local/cuda/include
-export CUDA_Bin=/usr/local/cuda/bin
-export CUDA_HOME=/usr/local/cuda/
+export TensorRT_Lib=/usr/lib/x86_64-linux-gnu/
+export TensorRT_Inc=/usr/include/x86_64-linux-gnu
+export TensorRT_Bin=/usr/src/tensorrt/bin
 
-export CUDNN_Lib=/usr/local/cuda/lib64
+export CUDA_Lib= /usr/local/cuda-12.4/lib64
+export CUDA_Inc=/usr/local/cuda-12.4/include
+export CUDA_Bin=/usr/local/cuda-12.4/bin
+export CUDA_HOME=/usr/local/cuda-12.4
+
+# apt-get -y install cudnn-cuda-12
+export CUDNN_Lib=/usr/lib/x86_64-linux-gnu/
 
 
 # resnet50/resnet50int8/swint

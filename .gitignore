@@ -7,3 +7,4 @@ ptq/pth/
 ptq/__pycache__/
 ptq/lean/__pycache__/
 tool/__pycache__/
+.vscode/
