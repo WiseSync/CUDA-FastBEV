@@ -12,10 +12,10 @@ export TensorRT_Lib=/usr/lib/x86_64-linux-gnu/
 export TensorRT_Inc=/usr/include/x86_64-linux-gnu
 export TensorRT_Bin=/usr/src/tensorrt/bin
 
-export CUDA_Lib= /usr/local/cuda-12.4/lib64
-export CUDA_Inc=/usr/local/cuda-12.4/include
-export CUDA_Bin=/usr/local/cuda-12.4/bin
-export CUDA_HOME=/usr/local/cuda-12.4
+export CUDA_Lib= /usr/local/cuda-11.8/lib64
+export CUDA_Inc=/usr/local/cuda-11.8/include
+export CUDA_Bin=/usr/local/cuda-11.8/bin
+export CUDA_HOME=/usr/local/cuda-11.8
 
 # apt-get -y install cudnn-cuda-12
 export CUDNN_Lib=/usr/lib/x86_64-linux-gnu/

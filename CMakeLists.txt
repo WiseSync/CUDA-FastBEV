@@ -62,7 +62,7 @@ cuda_add_library(fastbev_core SHARED
 )
 
 target_link_directories(fastbev_core PUBLIC
-    /usr/local/cuda-12.4/lib64
+    /usr/local/cuda-11.8/lib64
 )
 
 target_link_libraries(fastbev_core

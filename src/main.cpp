@@ -138,10 +138,10 @@ int main(int argc, char** argv){
     // warmup
     auto bboxes = core->forward((const unsigned char**)images.data(), stream);
     
-    // evaluate inference time
-    // for (int i = 0; i < 5; ++i) {
-    //   core->forward((const unsigned char**)images.data(), stream);
-    // }
+     //evaluate inference time
+     for (int i = 0; i < 5; ++i) {
+       core->forward((const unsigned char**)images.data(), stream);
+     }
 
     std::string save_file_name = Save_Dir + ".txt";
     SaveBoxPred(bboxes, save_file_name);

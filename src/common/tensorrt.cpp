@@ -231,8 +231,10 @@ class EngineImplement : public Engine {
 
   virtual bool set_run_dims(const std::string &name, const std::vector<int> &dims) override {
     nvinfer1::Dims d;
-    memcpy(d.d, dims.data(), sizeof(int) * dims.size());
     d.nbDims = dims.size();
+    for (int i = 0; i < d.nbDims; ++i) {
+        d.d[i] = dims[i];
+    }
     return this->context_->context_->setInputShape(name.c_str(), d);
   }
 
