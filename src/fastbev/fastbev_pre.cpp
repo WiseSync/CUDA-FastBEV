@@ -4,7 +4,7 @@
  * @Last Modified by:   Mandy 
  * @Last Modified time: 2023-08-13 13:18:55 
  */
-#include <cuda_fp16.h>
+//#include <cuda_fp16.h>
 
 #include <numeric>
 
@@ -12,6 +12,7 @@
 #include "common/check.hpp"
 #include "common/launch.cuh"
 #include "common/tensorrt.hpp"
+#include <common/utils.hpp>
 
 namespace fastbev {
 namespace pre {
@@ -19,7 +20,7 @@ namespace pre {
 class BackboneImplement : public Backbone {
  public:
   virtual ~BackboneImplement() {
-    if (feature_) checkRuntime(cudaFree(feature_));
+    if (feature_) fastbev::Utils::freeTensorMem(feature_);
   }
 
   bool init(const std::string& model) {
@@ -28,7 +29,8 @@ class BackboneImplement : public Backbone {
 
     feature_dims_ = engine_->static_dims(1);
     int32_t volumn = std::accumulate(feature_dims_.begin(), feature_dims_.end(), 1, std::multiplies<int32_t>());
-    checkRuntime(cudaMalloc(&feature_, volumn * sizeof(nvtype::half)));
+    feature_ = fastbev::Utils::allocTensorMem<nvtype::half>(volumn * sizeof(nvtype::half));
+    //checkRuntime(cudaMalloc(&feature_, volumn * sizeof(nvtype::half)));
 
     return true;
   }
@@ -38,7 +40,7 @@ class BackboneImplement : public Backbone {
   virtual void forward(const nvtype::half* images, void* stream = nullptr) override {
 
 
-    engine_->forward({images, feature_}, static_cast<cudaStream_t>(stream));
+    engine_->forward({images, feature_});
   }
 
   virtual nvtype::half* feature() override { return feature_; }

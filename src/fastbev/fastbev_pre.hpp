@@ -10,10 +10,10 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "common/tensor.hpp"
+#include <common/tensor.hpp>
 
 #include "common/dtype.hpp"
-#include <opencv2/opencv.hpp>
+//include <opencv2/opencv.hpp>
 
 namespace fastbev {
 namespace pre {

@@ -24,7 +24,7 @@ struct CoreParameter {
 
 class Core {
  public:
-  virtual std::vector<post::transbbox::BoundingBox> forward(const unsigned char **camera_images, void *stream ) = 0;
+  virtual std::vector<post::transbbox::BoundingBox> forward(const unsigned char **camera_images, void *stream=nullptr ) = 0;
 
   virtual void print() = 0;
   virtual void set_timer(bool enable) = 0;

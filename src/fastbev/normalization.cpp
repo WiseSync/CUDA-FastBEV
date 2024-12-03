@@ -21,11 +21,15 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#include <cuda_fp16.h>
+//#include <cuda_fp16.h>
 
 #include "normalization.hpp"
 #include "common/check.hpp"
 #include "common/launch.cuh"
+#include <common/dtype.hpp>
+#include <common/utils.hpp>
+
+using namespace nvtype;
 
 namespace fastbev {
 namespace pre {
@@ -35,15 +39,11 @@ namespace pre {
 #define CAST_BITS (INTER_RESIZE_COEF_BITS << 1)
 
 template <typename _T>
-static __forceinline__ __device__ _T limit(_T value, _T low, _T high) {
+static inline _T limit(_T value, _T low, _T high) {
   return value < low ? low : (value > high ? high : value);
 }
 
-struct half3 {
-  half x, y, z;
 
-  __device__ __host__ half3(half x, half y, half z) : x(x), y(y), z(z) {}
-};
 
 NormMethod NormMethod::mean_std(const float mean[3], const float std[3], float alpha, float beta, ChannelType channel_type) {
   NormMethod out;
@@ -68,11 +68,11 @@ NormMethod NormMethod::alpha_beta(float alpha, float beta, ChannelType channel_t
 NormMethod NormMethod::None() { return NormMethod(); }
 
 template <Interpolation interpolation>
-static __device__ uchar3 load_pixel(const uchar3* image, int x, int y, int tix, int tiy, float sx, float sy, int width,
+static uchar3 load_pixel(const uchar3* image, int x, int y, int tix, int tiy, float sx, float sy, int width,
                                     int height);
 
 template <>
-__device__ uchar3 load_pixel<Interpolation::Nearest>(const uchar3* image, int x, int y, int tox, int toy, float sx, float sy,
+uchar3 load_pixel<Interpolation::Nearest>(const uchar3* image, int x, int y, int tox, int toy, float sx, float sy,
                                                      int width, int height) {
   // In some cases, the floating point precision will lead to miscalculation of the value,
   // making the result not exactly match with opencv,
@@ -91,7 +91,7 @@ __device__ uchar3 load_pixel<Interpolation::Nearest>(const uchar3* image, int x,
 }
 
 template <>
-__device__ uchar3 load_pixel<Interpolation::Bilinear>(const uchar3* image, int x, int y, int tox, int toy, float sx, float sy,
+uchar3 load_pixel<Interpolation::Bilinear>(const uchar3* image, int x, int y, int tox, int toy, float sx, float sy,
                                                       int width, int height) {
   uchar3 rgb[4];
   float src_x = (x + tox + 0.5f) * sx - 0.5f;
@@ -124,30 +124,30 @@ __device__ uchar3 load_pixel<Interpolation::Bilinear>(const uchar3* image, int x
 }
 
 template <NormType norm_type>
-static __device__ half3 normalize_value(const uchar3& pixel, const NormMethod& method);
+static Float3 normalize_value(const uchar3& pixel, const NormMethod& method);
 
 template <>
-__device__ half3 normalize_value<NormType::Nothing>(const uchar3& pixel, const NormMethod& method) {
-  return half3(pixel.x, pixel.y, pixel.z);
+Float3 normalize_value<NormType::Nothing>(const uchar3& pixel, const NormMethod& method) {
+  return Float3(pixel.x, pixel.y, pixel.z);
 }
 
 template <>
-__device__ half3 normalize_value<NormType::AlphaBeta>(const uchar3& pixel, const NormMethod& method) {
-  return half3(pixel.x * method.alpha + method.beta, pixel.y * method.alpha + method.beta, pixel.z * method.alpha + method.beta);
+Float3 normalize_value<NormType::AlphaBeta>(const uchar3& pixel, const NormMethod& method) {
+  return Float3(pixel.x * method.alpha + method.beta, pixel.y * method.alpha + method.beta, pixel.z * method.alpha + method.beta);
 }
 
 template <>
-__device__ half3 normalize_value<NormType::MeanStd>(const uchar3& pixel, const NormMethod& method) {
-  return half3((pixel.x * method.alpha - method.mean[0]) / method.std[0] + method.beta,
+Float3 normalize_value<NormType::MeanStd>(const uchar3& pixel, const NormMethod& method) {
+  return Float3((pixel.x * method.alpha - method.mean[0]) / method.std[0] + method.beta,
                (pixel.y * method.alpha - method.mean[1]) / method.std[1] + method.beta,
                (pixel.z * method.alpha - method.mean[2]) / method.std[2] + method.beta);
 }
 
 template <typename OutputType>
-static __device__ void store_output(const half3& normed, void* output, int icamera, int ix, int iy, int nx, int ny);
+static void store_output(const Float3& normed, void* output, int icamera, int ix, int iy, int nx, int ny);
 
 template <>
-__device__ void store_output<half>(const half3& normed, void* output, int icamera, int ix, int iy, int nx, int ny) {
+void store_output<float>(const Float3& normed, void* output, int icamera, int ix, int iy, int nx, int ny) {
   half* planar_pointer = (half*)output + icamera * ny * nx * 3;
   planar_pointer[(0 * ny + iy) * nx + ix] = normed.x;
   planar_pointer[(1 * ny + iy) * nx + ix] = normed.y;
@@ -155,14 +155,14 @@ __device__ void store_output<half>(const half3& normed, void* output, int icamer
 }
 
 template <NormType norm_type, Interpolation interpolation, typename OutputType>
-static __global__ void normalize_to_planar_kernel(int nx, int ny, int nz, float sx, float sy, int crop_x, int crop_y,
+static void normalize_to_planar_kernel(int nx, int ny, int nz, float sx, float sy, int crop_x, int crop_y,
                                                   uchar3* imgs, int image_width, int image_height, void* output,
-                                                  NormMethod method) {
-  int ix = cuda_2d_x;
-  int iy = cuda_2d_y;
+                                                  NormMethod method, int32_t ix, int32_t iy, int32_t icamera){
+  //int ix = cuda_2d_x;
+  //int iy = cuda_2d_y;
   if (ix >= nx || iy >= ny) return;
 
-  int icamera = blockIdx.z;
+  //int icamera = blockIdx.z;
   uchar3* img = imgs + image_width * image_height * icamera;
   uchar3 pixel = load_pixel<interpolation>(img, ix, iy, crop_x, crop_y, sx, sy, image_width, image_height);
 
@@ -172,12 +172,12 @@ static __global__ void normalize_to_planar_kernel(int nx, int ny, int nz, float 
     pixel.x = t;
   }
 
-  half3 normed = normalize_value<norm_type>(pixel, method);
+  Float3 normed = normalize_value<norm_type>(pixel, method);
   store_output<OutputType>(normed, output, icamera, ix, iy, nx, ny);
 }
 
 typedef void (*normalize_to_planar_kernel_fn)(int nx, int ny, int nz, float sx, float sy, int crop_x_, int crop_y_, uchar3* imgs,
-                                              int image_width, int image_height, void* output, NormMethod method);
+                                              int image_width, int image_height, void* output, NormMethod method, int32_t ix, int32_t iy, int32_t icamera);
 
 #define DefineNormType(...)                                                                                               \
   normalize_to_planar_kernel<NormType::Nothing, __VA_ARGS__>, normalize_to_planar_kernel<NormType::MeanStd, __VA_ARGS__>, \
@@ -186,7 +186,7 @@ typedef void (*normalize_to_planar_kernel_fn)(int nx, int ny, int nz, float sx, 
 #define DefineInterpolation(...) \
   DefineNormType(Interpolation::Nearest, __VA_ARGS__) DefineNormType(Interpolation::Bilinear, __VA_ARGS__)
 
-#define DefineDataType DefineInterpolation(half)
+#define DefineDataType DefineInterpolation(float)
 
 #define DefineAllFunction DefineDataType
 
@@ -195,8 +195,8 @@ static const normalize_to_planar_kernel_fn func_list[] = {DefineAllFunction null
 class NormalizationImplement : public Normalization {
  public:
   virtual ~NormalizationImplement() {
-    if (raw_images_) checkRuntime(cudaFree(raw_images_));
-    if (normalize_images_) checkRuntime(cudaFree(normalize_images_));
+    if (raw_images_) fastbev::Utils::freeTensorMem(raw_images_);
+    if (normalize_images_) fastbev::Utils::freeTensorMem(normalize_images_);
   }
 
   bool init(const NormalizationParameter& param) {
@@ -209,28 +209,42 @@ class NormalizationImplement : public Normalization {
     this->sx_ = 1.0f / param.resize_lim;
     this->sy_ = 1.0f / param.resize_lim;
 
-    checkRuntime(cudaMalloc(&raw_images_, param.image_width * param.image_height * 3 * param.num_camera * sizeof(unsigned char)));
-    checkRuntime(cudaMalloc(&normalize_images_, param.output_width * param.output_height * 3 * param.num_camera * sizeof(half)));
+    raw_images_ = fastbev::Utils::allocTensorMem<unsigned char>(param.image_width * param.image_height * 3 * param.num_camera* sizeof(unsigned char));
+    normalize_images_ = fastbev::Utils::allocTensorMem<float>(param.output_width * param.output_height * 3 * param.num_camera* sizeof(float));
+    //checkRuntime(cudaMalloc(&raw_images_, param.image_width * param.image_height * 3 * param.num_camera * sizeof(unsigned char)));
+    //checkRuntime(cudaMalloc(&normalize_images_, param.output_width * param.output_height * 3 * param.num_camera * sizeof(half)));
     return true;
   }
 
-  virtual nvtype::half* forward(const unsigned char** images, void* stream) override {
+  virtual float* forward(const unsigned char** images, void* stream) override {
     size_t index = (size_t)param_.interpolation * 3 + (size_t)param_.method.type;
     Assertf(index < sizeof(func_list) / sizeof(func_list[0]) - 1, "Invalid configure index: %d", static_cast<int>(index));
 
     auto normalize_to_planar_kernel_function = func_list[index];
-    cudaStream_t _stream = static_cast<cudaStream_t>(stream);
+    //cudaStream_t _stream = static_cast<cudaStream_t>(stream);
     size_t bytes_image = param_.image_width * param_.image_height * 3 * sizeof(unsigned char);
 
-    for (int icamera = 0; icamera < param_.num_camera; ++icamera)
-      checkRuntime(
-          cudaMemcpyAsync(raw_images_ + icamera * bytes_image, images[icamera], bytes_image, cudaMemcpyHostToDevice, _stream));
+    for (int icamera = 0; icamera < param_.num_camera; ++icamera){
+        //checkRuntime(
+       //   cudaMemcpyAsync(raw_images_ + icamera * bytes_image, images[icamera], bytes_image, cudaMemcpyHostToDevice, _stream));
+        std::memcpy(raw_images_ + icamera * bytes_image, images[icamera], bytes_image);
+    }
+    
+    for(size_t i=0;i<param_.num_camera;i++){
+        for(size_t y=0;y<param_.output_height;y++){
+            for(size_t x=0;x<param_.output_width;x++){
+                normalize_to_planar_kernel_function(param_.output_width, param_.output_height, param_.num_camera, sx_, sy_, crop_x_, crop_y_,
+                                        reinterpret_cast<uchar3*>(raw_images_), param_.image_width, param_.image_height,
+                                        normalize_images_, param_.method, x, y, i);
+            }
+        }
+    }
 
-    cuda_2d_launch(normalize_to_planar_kernel_function, _stream, param_.output_width, param_.output_height, param_.num_camera,
-                   sx_, sy_, crop_x_, crop_y_, reinterpret_cast<uchar3*>(raw_images_), param_.image_width, param_.image_height,
-                   normalize_images_, param_.method);
+   // cuda_2d_launch(normalize_to_planar_kernel_function, _stream, param_.output_width, param_.output_height, param_.num_camera,
+    //               sx_, sy_, crop_x_, crop_y_, reinterpret_cast<uchar3*>(raw_images_), param_.image_width, param_.image_height,
+     //              normalize_images_, param_.method);
 
-    return reinterpret_cast<nvtype::half*>(normalize_images_);
+    return reinterpret_cast<float*>(normalize_images_);
   }
 
  private:
@@ -239,7 +253,7 @@ class NormalizationImplement : public Normalization {
   float sy_ = 1.0f;
   int crop_x_ = 0;
   int crop_y_ = 0;
-  half* normalize_images_ = nullptr;
+  float* normalize_images_ = nullptr;
   unsigned char* raw_images_ = nullptr;
 };
 

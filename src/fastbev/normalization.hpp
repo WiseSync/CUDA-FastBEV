@@ -74,7 +74,7 @@ class Normalization {
   // Step2: execute ChannelType transformation, RGB->BGR etc.
   // Step3: execute Normalize transformation, MeanStd or AlphaBeta.
   // Step4: store as a planar memory.
-  virtual nvtype::half* forward(const unsigned char** images, void* stream) = 0;
+  virtual float* forward(const unsigned char** images, void* stream) = 0;
 };
 
 std::shared_ptr<Normalization> create_normalization(const NormalizationParameter& param);

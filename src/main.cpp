@@ -4,7 +4,7 @@
  * @Last Modified by: Mandy
  * @Last Modified time: 2023-08-13 18:51:21
  */
-#include <cuda_runtime.h>
+//#include <cuda_runtime.h>
 #include <string.h>
 #include <iostream>
 #include <sstream>
@@ -12,7 +12,7 @@
 #include <vector>
 
 #define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
+#include "stb_image.h"
 #include <algorithm>
 
 #include "fastbev/fastbev.hpp"
@@ -20,6 +20,10 @@
 #include "common/tensor.hpp"
 #include "common/timer.hpp"
 #include "common/visualize.hpp"
+
+#include <mv_stream/slog.hpp>
+
+static auto LOG = mv::Log::getLogger("FastBEVMain");
 
 const int final_height = 256;
 const int final_weith = 704;
@@ -31,7 +35,7 @@ static std::vector<unsigned char*> load_images(const std::string& root) {
   std::vector<unsigned char*> images;
   for (int i = 0; i < 6; ++i) {
     char path[200];
-    sprintf(path, "%s/%s", root.c_str(), file_names[i]);
+    SLOG_INFO<<path<<root<<'/'<<file_names[i];
 
     int width, height, channels;
     images.push_back(stbi_load(path, &width, &height, &channels, 0));
@@ -71,9 +75,9 @@ std::shared_ptr<fastbev::Core> create_core(const std::string& model, const std::
   geo_param.volum_z = 4;
 
   fastbev::CoreParameter param;
-  param.pre_model = nv::format("model/%s/build/fastbev_pre_trt.plan", model.c_str());
+  param.pre_model = nv::format("model/%s/fastbev_pre_trt.onnx", model.c_str());
   param.normalize = normalization;
-  param.post_model = nv::format("model/%s/build/fastbev_post_trt_decode.plan", model.c_str());
+  param.post_model = nv::format("model/%s/fastbev_post_trt_decode.onnx", model.c_str());
   param.geo_param = geo_param;
   return fastbev::create_core(param);
 }
@@ -123,8 +127,8 @@ int main(int argc, char** argv){
       return -1;
     }
  
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
+    //cudaStream_t stream;
+    //cudaStreamCreate(&stream);
 
     core->print();
     core->set_timer(true);
@@ -134,13 +138,13 @@ int main(int argc, char** argv){
     auto valid_c_idx = nv::Tensor::load(nv::format("%s/valid_c_idx.tensor", data), false);
     auto valid_x = nv::Tensor::load(nv::format("%s/x.tensor", data), false);
     auto valid_y = nv::Tensor::load(nv::format("%s/y.tensor", data), false);
-    core->update(valid_c_idx.ptr<float>(), valid_x.ptr<int64_t>(), valid_y.ptr<int64_t>(), stream);
+    core->update(valid_c_idx.ptr<float>(), valid_x.ptr<int64_t>(), valid_y.ptr<int64_t>());
     // warmup
-    auto bboxes = core->forward((const unsigned char**)images.data(), stream);
+    auto bboxes = core->forward((const unsigned char**)images.data());
     
      //evaluate inference time
      for (int i = 0; i < 5; ++i) {
-       core->forward((const unsigned char**)images.data(), stream);
+       core->forward((const unsigned char**)images.data());
      }
 
     std::string save_file_name = Save_Dir + ".txt";
@@ -148,6 +152,6 @@ int main(int argc, char** argv){
 
     // destroy memory
     free_images(images);
-    checkRuntime(cudaStreamDestroy(stream));
+    //checkRuntime(cudaStreamDestroy(stream));
     return 0;
 }

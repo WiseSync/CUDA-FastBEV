@@ -4,7 +4,7 @@
  * @Last Modified by: Mandy
  * @Last Modified time: 2023-08-13 17:17:42
  */
-#include <cuda_fp16.h>
+//#include <cuda_fp16.h>
 
 #include <algorithm>
 #include <numeric>
@@ -13,6 +13,7 @@
 #include "common/launch.cuh"
 #include "common/tensorrt.hpp"
 #include "fastbev_post.hpp"
+#include <common/utils.hpp>
 
 namespace fastbev {
 namespace post {
@@ -20,9 +21,9 @@ namespace post {
 class TransfusionImplement : public Transfusion {
  public:
   virtual ~TransfusionImplement() {
-    if(bindings_.cls_scores){checkRuntime(cudaFree(bindings_.cls_scores));}
-    if(bindings_.dir_cls_scores){checkRuntime(cudaFree(bindings_.dir_cls_scores));}
-    if(bindings_.bbox_preds){checkRuntime(cudaFree(bindings_.bbox_preds));}
+    if(bindings_.cls_scores){fastbev::Utils::freeTensorMem(bindings_.cls_scores);}
+    if(bindings_.dir_cls_scores){fastbev::Utils::freeTensorMem(bindings_.dir_cls_scores);}
+    if(bindings_.bbox_preds){fastbev::Utils::freeTensorMem(bindings_.bbox_preds);}
   }
 
   virtual bool init(const std::string& model) {
@@ -47,18 +48,18 @@ class TransfusionImplement : public Transfusion {
       
       size_t volumn = std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int>());
       if(ibinding == 1){
-        float* pdata = nullptr;
-        checkRuntime(cudaMalloc(&pdata, volumn * sizeof(float)));
+        float* pdata = fastbev::Utils::allocTensorMem<float>(volumn * sizeof(float));
+        //checkRuntime(cudaMalloc(&pdata, volumn * sizeof(float)));
         bindings_.cls_scores = pdata;
       }
       if(ibinding == 2){
-        int32_t* pdata = nullptr;
-        checkRuntime(cudaMalloc(&pdata, volumn * sizeof(int32_t)));
+        int32_t* pdata = fastbev::Utils::allocTensorMem<int32_t>(volumn * sizeof(int32_t));
+        //checkRuntime(cudaMalloc(&pdata, volumn * sizeof(int32_t)));
         bindings_.dir_cls_scores = pdata;
       }
       if(ibinding == 3){
-        float* pdata = nullptr;
-        checkRuntime(cudaMalloc(&pdata, volumn * sizeof(float)));
+        float* pdata = fastbev::Utils::allocTensorMem<float>(volumn * sizeof(float));
+        //checkRuntime(cudaMalloc(&pdata, volumn * sizeof(float)));
         bindings_.bbox_preds = pdata;
       }
 
@@ -72,11 +73,10 @@ class TransfusionImplement : public Transfusion {
   virtual std::vector<std::vector<int>> output_shape() override { return bindshape_; }
 
   virtual BindingOut forward(const nvtype::half* camera_bev, void* stream) override {
-    cudaStream_t _stream = static_cast<cudaStream_t>(stream);
+    //cudaStream_t _stream = static_cast<cudaStream_t>(stream);
     
     engine_->forward({/* input  */ camera_bev,
-                      /* output */ bindings_.cls_scores, bindings_.dir_cls_scores, bindings_.bbox_preds},
-                     _stream);
+                      /* output */ bindings_.cls_scores, bindings_.dir_cls_scores, bindings_.bbox_preds});
 
     return bindings_;
   }

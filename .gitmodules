@@ -1,0 +1,9 @@
+[submodule "lib/spdlog"]
+	path = lib/spdlog
+	url = git@github.com:gabime/spdlog.git
+[submodule "module/module"]
+	path = module/module
+	url = git@github.com:WiseSync/MVUtils.git
+[submodule "module/utils"]
+	path = module/utils
+	url = git@github.com:WiseSync/MVUtils.git

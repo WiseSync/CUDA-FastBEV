@@ -25,35 +25,35 @@
 #define __TIMER_HPP__
 
 #include "check.hpp"
+//#include <iostream>
+//#include <mv_stream/slog.hpp>
 
-namespace nv {
+//static auto LOG = mv::Log::getLogger("Timer");
+
+namespace fastbev {
 
 class EventTimer {
  public:
-  EventTimer() {
-    checkRuntime(cudaEventCreate(&begin_));
-    checkRuntime(cudaEventCreate(&end_));
+  EventTimer(): start_(std::chrono::high_resolution_clock::now()) {
+
   }
 
   virtual ~EventTimer() {
-    checkRuntime(cudaEventDestroy(begin_));
-    checkRuntime(cudaEventDestroy(end_));
+
   }
 
-  void start(cudaStream_t stream) { checkRuntime(cudaEventRecord(begin_, stream)); }
+  void start() { start_ = std::chrono::high_resolution_clock::now(); }
 
   float stop(const char* prefix = "timer") {
-    float times = 0;
-    checkRuntime(cudaEventRecord(end_, stream_));
-    checkRuntime(cudaEventSynchronize(end_));
-    checkRuntime(cudaEventElapsedTime(&times, begin_, end_));
-    printf("[⏰ %s]: \t%.5f ms\n", prefix, times);
-    return times;
+    float ms = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - start_).count();
+
+    //std::cout<< "[⏰ " << prefix << "]: \t" << ms << " ms";
+
+    return ms;
   }
 
  private:
-  cudaStream_t stream_ = nullptr;
-  cudaEvent_t begin_ = nullptr, end_ = nullptr;
+  std::chrono::high_resolution_clock::time_point start_;
 };
 
 };  // namespace nv

@@ -23,7 +23,7 @@
 
 #include "tensorrt.hpp"
 
-#include <cuda_runtime.h>
+#include <onnxruntime_cxx_api.h>
 #include <string.h>
 
 #include <algorithm>
@@ -32,34 +32,22 @@
 #include <numeric>
 #include <unordered_map>
 #include <vector>
-
-#include "NvInfer.h"
-#include "NvInferRuntime.h"
-#include "check.hpp"
+#include <sstream>
 
 using namespace std;
 
 namespace TensorRT {
 
-static class Logger : public nvinfer1::ILogger {
- public:
-  void log(Severity severity, const char *msg) noexcept override {
-    if (severity == Severity::kERROR || severity == Severity::kINTERNAL_ERROR) {
-      std::cerr << "[NVINFER LOG]: " << msg << std::endl;
-    }
-  }
-} gLogger_;
+static std::string format_shape(const Ort::ShapeInferContext::Ints &shape) {
 
-static std::string format_shape(const nvinfer1::Dims &shape) {
-  char buf[200] = {0};
-  char *p = buf;
-  for (int i = 0; i < shape.nbDims; ++i) {
-    if (i + 1 < shape.nbDims)
-      p += sprintf(p, "%ld x ", shape.d[i]);
+std::stringstream ss;
+for (size_t i = 0; i < shape.size(); ++i) {
+    if (i + 1 < shape.size())
+        ss << shape[i] << " x ";
     else
-      p += sprintf(p, "%ld", shape.d[i]);
-  }
-  return buf;
+        ss << shape[i];
+}
+return ss.str();
 }
 
 static std::vector<uint8_t> load_file(const std::string &file) {
@@ -80,18 +68,18 @@ static std::vector<uint8_t> load_file(const std::string &file) {
   return data;
 }
 
-static const char *data_type_string(nvinfer1::DataType dt) {
+static const char *data_type_string(ONNXTensorElementDataType dt) {
   switch (dt) {
-    case nvinfer1::DataType::kFLOAT:
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
       return "Float32";
-    case nvinfer1::DataType::kHALF:
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16:
       return "Float16";
-    case nvinfer1::DataType::kINT32:
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:
       return "Int32";
     // case nvinfer1::DataType::kUINT8: return "UInt8";
-    case nvinfer1::DataType::kINT8:
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8:
       return "Int8";
-    case nvinfer1::DataType::kBOOL:
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL:
       return "BOOL";
     default:
       return "Unknow";
@@ -103,217 +91,304 @@ static void destroy_pointer(_T *ptr) {
   if (ptr) delete ptr;
 }
 
-class __native_engine_context {
- public:
-  virtual ~__native_engine_context() { destroy(); }
 
-  bool construct(const void *pdata, size_t size, const char *message_name) {
-    destroy();
 
-    if (pdata == nullptr || size == 0) {
-      printf("Construct for empty data found.\n");
-      return false;
-    }
+class EngineImplement : public TensorRT::Engine {
+public:
+    EngineImplement(const std::string& model_path);
+    virtual ~EngineImplement();
+    bool forward(const std::vector<const void*>& bindings, void* stream = nullptr, void* input_consum_event = nullptr) override;
+    int index(const std::string &name) override;
+    std::vector<int> run_dims(const std::string &name)  override;
+    std::vector<int> run_dims(int ibinding) override;
+    std::vector<int> static_dims(const std::string &name) override;
+    std::vector<int> static_dims(int ibinding) override;
+    int numel(const std::string &name) override;
+    int numel(int ibinding)  override;
+    int num_bindings() override;
+    bool is_input(int ibinding)  override;
+    bool set_run_dims(const std::string &name, const std::vector<int> &dims) override;
+    bool set_run_dims(int ibinding, const std::vector<int> &dims) override;
+    DType dtype(const std::string &name) override;
+    DType dtype(int ibinding) override;
+    bool has_dynamic_dim() override;
+    void print(const char *name = "TensorRT-Engine") override;
 
-    runtime_ = std::shared_ptr<nvinfer1::IRuntime>(nvinfer1::createInferRuntime(gLogger_), destroy_pointer<nvinfer1::IRuntime>);
-    if (runtime_ == nullptr) {
-      printf("Failed to create tensorRT runtime: %s.\n", message_name);
-      return false;
-    }
+private:
+    void initializeIO();
+    size_t numel(const std::vector<int64_t>& dims);
 
-    engine_ = std::shared_ptr<nvinfer1::ICudaEngine>(runtime_->deserializeCudaEngine(pdata, size),
-                                                     destroy_pointer<nvinfer1::ICudaEngine>);
-    if (engine_ == nullptr) {
-      printf("Failed to deserialize engine: %s\n", message_name);
-      return false;
-    }
+    Ort::Env env_;
+    Ort::SessionOptions session_options_;
+    Ort::Session session_;
+    Ort::AllocatorWithDefaultOptions allocator_;
+    Ort::MemoryInfo allocator_info_;
 
-    context_ = std::shared_ptr<nvinfer1::IExecutionContext>(engine_->createExecutionContext(),
-                                                            destroy_pointer<nvinfer1::IExecutionContext>);
-    if (context_ == nullptr) {
-      printf("Failed to create execution context: %s\n", message_name);
-      return false;
-    }
-    return context_ != nullptr;
-  }
-
- private:
-  void destroy() {
-    context_.reset();
-    engine_.reset();
-    runtime_.reset();
-  }
-
- public:
-  std::shared_ptr<nvinfer1::IExecutionContext> context_;
-  std::shared_ptr<nvinfer1::ICudaEngine> engine_;
-  std::shared_ptr<nvinfer1::IRuntime> runtime_ = nullptr;
+    std::vector<const char*> input_node_names_;
+    std::vector<const char*> output_node_names_;
+    std::vector<std::vector<int64_t>> input_node_dims_;
+    std::vector<std::vector<int64_t>> output_node_dims_;
 };
 
-class EngineImplement : public Engine {
- public:
-  std::shared_ptr<__native_engine_context> context_;
-  std::unordered_map<std::string, int> binding_name_to_index_;
+size_t EngineImplement::numel(const std::vector<int64_t>& dims) {
+    return std::accumulate(dims.begin(), dims.end(), 1, std::multiplies<int64_t>());
+}
 
-  virtual ~EngineImplement() = default;
+EngineImplement::EngineImplement(const std::string& model_path)
+    : env_(ORT_LOGGING_LEVEL_WARNING, "OnnxRuntime"),
+      session_options_(),
+      session_(nullptr),
+      allocator_info_(Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemTypeDefault)) {
+    
+    session_ = Ort::Session(env_, model_path.c_str(), session_options_);
 
-  bool construct(const void *data, size_t size, const char *message_name) {
-    context_ = std::make_shared<__native_engine_context>();
-    if (!context_->construct(data, size, message_name)) {
-      return false;
+    initializeIO();
+}
+
+int32_t EngineImplement::index(const std::string &name) {
+    for(int32_t i = 0; i < input_node_names_.size(); i++) {
+        if (name.compare(input_node_names_[i]) == 0) {
+            return i;
+        }
     }
 
-    setup();
-    return true;
-  }
-
-  bool load(const std::string &file) {
-    auto data = load_file(file);
-    if (data.empty()) {
-      printf("An empty file has been loaded. Please confirm your file path: %s\n", file.c_str());
-      return false;
+    for (int32_t i = 0; i < output_node_names_.size(); i++) {
+        if ( name.compare(output_node_names_[i]) == 0) {
+            return input_node_names_.size()+i;
+        }
     }
-    return this->construct(data.data(), data.size(), file.c_str());
-  }
+    return -1;
+}
 
-  void setup() {
-    auto engine = this->context_->engine_;
-    int nbBindings = engine->getNbIOTensors();
-
-    binding_name_to_index_.clear();
-    for (int i = 0; i < nbBindings; ++i) {
-      const char *bindingName = engine->getIOTensorName(i);
-      binding_name_to_index_[bindingName] = i;
+std::vector<int> EngineImplement::run_dims(const std::string &name) {
+    int32_t idx = index(name);
+    if (idx < 0) {
+        return {};
     }
-  }
+    return run_dims(idx);
+}
 
-  virtual int index(const std::string &name) override {
-    auto iter = binding_name_to_index_.find(name);
-    Assertf(iter != binding_name_to_index_.end(), "Can not found the binding name: %s", name.c_str());
-    return iter->second;
-  }
-
-  virtual bool forward(const std::vector<const void *> &bindings, void *stream, void *input_consum_event) override {
-    //this->context_->context_->setTensorAddress(bindings.data(), bindings.size());
-    for (size_t i = 0; i < bindings.size(); ++i) {
-        void* buffer = const_cast<void*>(bindings[i]);
-        this->context_->context_->setTensorAddress(this->context_->engine_->getIOTensorName(i), buffer);
+std::vector<int> EngineImplement::run_dims(int ibinding) {
+    if (ibinding < 0 || ibinding >= input_node_dims_.size()+output_node_dims_.size()) {
+        return {};
     }
-    return this->context_->context_->enqueueV3((cudaStream_t)stream);
-  }
-
-  virtual std::vector<int> run_dims(const std::string &name) override { auto dim = this->context_->context_->getTensorShape(name.c_str());
-    return std::vector<int>(dim.d, dim.d + dim.nbDims);
-  }
-
-  virtual std::vector<int> run_dims(int idx) override {
-    const string& name = this->context_->engine_->getIOTensorName(idx);
-    return run_dims(name);
+    std::vector<int> dims;
+    if (ibinding < input_node_dims_.size()) {
+        for (int i = 0; i < input_node_dims_[ibinding].size(); i++) {
+            dims.push_back(input_node_dims_[ibinding][i]);
+        }
+    } else {
+        for (int i = 0; i < output_node_dims_[ibinding-input_node_dims_.size()].size(); i++) {
+            dims.push_back(output_node_dims_[ibinding-input_node_dims_.size()][i]);
+        }
     }
 
+    return dims;
+}
 
-
-  virtual std::vector<int> static_dims(const std::string &name) override { auto dim = this->context_->engine_->getTensorShape(name.c_str());
-    return std::vector<int>(dim.d, dim.d + dim.nbDims);
-  }
-
-  virtual std::vector<int> static_dims(int idx) override {
-    const string& name = this->context_->engine_->getIOTensorName(idx);
-    return static_dims(name);
+std::vector<int> EngineImplement::static_dims(const std::string &name) {
+    int32_t idx = index(name);
+    if (idx < 0) {
+        return {};
     }
+    return static_dims(idx);
+}
 
-  virtual int num_bindings() override { return this->context_->engine_->getNbIOTensors(); }
+std::vector<int> EngineImplement::static_dims(int ibinding) {
+    return run_dims(ibinding);
+}
 
-  virtual bool is_input(const int32_t index) override { 
-    const string& name = this->context_->engine_->getIOTensorName(index);
-    return this->context_->engine_->getTensorIOMode(name.c_str()) == nvinfer1::TensorIOMode::kINPUT; 
+int EngineImplement::numel(const std::string &name) {
+    int32_t idx = index(name);
+    if (idx < 0) {
+        return -1;
     }
+    return numel(idx);
+}
 
-  virtual bool set_run_dims(const std::string &name, const std::vector<int> &dims) override {
-    nvinfer1::Dims d;
-    d.nbDims = dims.size();
-    for (int i = 0; i < d.nbDims; ++i) {
-        d.d[i] = dims[i];
+int EngineImplement::numel(int ibinding) {
+    if (ibinding < 0 || ibinding >= input_node_dims_.size()+output_node_dims_.size()) {
+        return -1;
     }
-    return this->context_->context_->setInputShape(name.c_str(), d);
-  }
+    if (ibinding < input_node_dims_.size()) {
+        return numel(input_node_dims_[ibinding]);
+    } else {
+        return numel(output_node_dims_[ibinding-input_node_dims_.size()]);
+    }
+}
 
-  virtual bool set_run_dims(int idx, const std::vector<int> &dims) override {
-    const string& name = this->context_->engine_->getIOTensorName(idx);
-    return set_run_dims(name, dims);
-  }
+int EngineImplement::num_bindings() {
+    return input_node_names_.size() + output_node_names_.size();
+}
 
+bool EngineImplement::is_input(int ibinding) {
+    return ibinding < input_node_names_.size();
+}
 
-  virtual int numel(const std::string &name) override { auto dim = this->context_->context_->getTensorShape(name.c_str());
-    return std::accumulate(dim.d, dim.d + dim.nbDims, 1, std::multiplies<int>());
-  }
+bool EngineImplement::set_run_dims(const std::string &name, const std::vector<int> &dims) {
+    int32_t idx = index(name);
+    if (idx < 0) {
+        return false;
+    }
+    return set_run_dims(idx, dims);
+}
 
-  virtual int numel(int idx) override {
-    const string& name = this->context_->engine_->getIOTensorName(idx);
-    return numel(name);
-  }
+bool EngineImplement::set_run_dims(int ibinding, const std::vector<int> &dims) {
+    throw std::runtime_error("Not implemented");
+}
 
+DType EngineImplement::dtype(const std::string &name) {
+    int32_t idx = index(name);
+    if (idx < 0) {
+        throw std::runtime_error("Invalid tensor name");
+    }
+    return dtype(idx);
+}
 
-  virtual DType dtype(const std::string &name) override { return (DType)this->context_->engine_->getTensorDataType(name.c_str());  }
+DType type(ONNXTensorElementDataType type){
+    switch (type) {
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
+            return DType::FLOAT;
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16:
+            return DType::HALF;
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:
+            return DType::INT32;
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8:
+            return DType::INT8;
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8:
+            return DType::UINT8;
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
+            throw std::runtime_error("Unsupported data type");
+        case ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL:
+            return DType::BOOL;
+        default:
+            throw std::runtime_error("Unsupported data type");
+    }
+}
 
-  virtual TensorRT::DType dtype(int idx) override {
-    const string& name = this->context_->engine_->getIOTensorName(idx);
-    return dtype(name);
-  }
+DType EngineImplement::dtype(int ibinding) {
+    if (ibinding < 0 || ibinding >= input_node_dims_.size()+output_node_dims_.size()) {
+        throw std::runtime_error("Invalid tensor index");
+    }
+    if (ibinding < input_node_dims_.size()) {
+        return  type(session_.GetInputTypeInfo(ibinding).GetTensorTypeAndShapeInfo().GetElementType());
+    } else {
+        return type(session_.GetOutputTypeInfo(ibinding-input_node_dims_.size()).GetTensorTypeAndShapeInfo().GetElementType());
+    }
+}
 
-
-  virtual bool has_dynamic_dim() override {
-    // check if any input or output bindings have dynamic shapes
-    // code from ChatGPT
-    int numBindings = this->context_->engine_->getNbIOTensors();
-    for (int i = 0; i < numBindings; ++i) {
-      const string& name = this->context_->engine_->getIOTensorName(i);
-      nvinfer1::Dims dims = this->context_->engine_->getTensorShape(name.c_str());
-      for (int j = 0; j < dims.nbDims; ++j) {
-        if (dims.d[j] == -1) return true;
-      }
+bool EngineImplement::has_dynamic_dim() {
+    for (auto& dim : input_node_dims_) {
+        for (auto& d : dim) {
+            if (d < 0) {
+                return true;
+            }
+        }
+    }
+    for (auto& dim : output_node_dims_) {
+        for (auto& d : dim) {
+            if (d < 0) {
+                return true;
+            }
+        }
     }
     return false;
-  }
+}
 
-  virtual void print(const char *name) override {
-    printf("------------------------------------------------------\n");
-    printf("%s 🌱 is %s model\n", name, has_dynamic_dim() ? "Dynamic Shape" : "Static Shape");
+void EngineImplement::print(const char *name) {
+    std::cout << "Engine: " << name << std::endl;
+    std::cout << "  Inputs:" << std::endl;
+    for (size_t i = 0; i < input_node_names_.size(); ++i) {
+        std::cout << "    " << input_node_names_[i] << " : " << format_shape(input_node_dims_[i]) << std::endl;
+    }
+    std::cout << "  Outputs:" << std::endl;
+    for (size_t i = 0; i < output_node_names_.size(); ++i) {
+        std::cout << "    " << output_node_names_[i] << " : " << format_shape(output_node_dims_[i]) << std::endl;
+    }
+}
 
-    int num_input = 0;
-    int num_output = 0;
-    auto engine = this->context_->engine_;
-    for (int i = 0; i < engine->getNbIOTensors(); ++i) {
-        const string& name = engine->getIOTensorName(i);
-      if (engine->getTensorIOMode(name.c_str()) == nvinfer1::TensorIOMode::kINPUT)
-        num_input++;
-      else
-        num_output++;
+
+EngineImplement::~EngineImplement() {
+    // 释放输入和输出节点名称
+    for (auto name : input_node_names_) {
+        allocator_.Free(const_cast<char*>(name));
+    }
+    for (auto name : output_node_names_) {
+        allocator_.Free(const_cast<char*>(name));
+    }
+}
+
+void EngineImplement::initializeIO() {
+    size_t num_input_nodes = session_.GetInputCount();
+    input_node_names_.resize(num_input_nodes);
+    input_node_dims_.resize(num_input_nodes);
+
+    for (size_t i = 0; i < num_input_nodes; i++) {
+        Ort::AllocatedStringPtr input_name = session_.GetInputNameAllocated(i, allocator_);
+        size_t input_name_len = std::strlen(input_name.get());
+        char* alloc_input_name = reinterpret_cast<char*>(allocator_.Alloc(input_name_len + 1));
+        std::copy(input_name.get(), input_name.get() + input_name_len, alloc_input_name);
+        alloc_input_name[input_name_len] = '\0';
+        input_node_names_[i] = alloc_input_name;
+
+        Ort::TypeInfo type_info = session_.GetInputTypeInfo(i);
+        auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+        input_node_dims_[i] = tensor_info.GetShape();
     }
 
-    printf("Inputs: %d\n", num_input);
-    for (int i = 0; i < num_input; ++i) {
-      const string& name = engine->getIOTensorName(i);
-      auto dim = engine->getTensorShape(name.c_str());
-      auto dtype = engine->getTensorDataType(name.c_str());
-      printf("\t%d.%s : {%s} [%s]\n", i, name.c_str(), format_shape(dim).c_str(), data_type_string(dtype));
+    size_t num_output_nodes = session_.GetOutputCount();
+    output_node_names_.resize(num_output_nodes);
+    output_node_dims_.resize(num_output_nodes);
+
+    for (size_t i = 0; i < num_output_nodes; i++) {
+        Ort::AllocatedStringPtr output_name = session_.GetOutputNameAllocated(i, allocator_);
+        size_t output_name_len = std::strlen(output_name.get());
+        char* alloc_output_name = reinterpret_cast<char*>(allocator_.Alloc(output_name_len + 1));
+        std::copy(output_name.get(), output_name.get() + output_name_len, alloc_output_name);
+        alloc_output_name[output_name_len] = '\0';
+        output_node_names_[i] = alloc_output_name;
+
+        Ort::TypeInfo type_info = session_.GetOutputTypeInfo(i);
+        auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+        tensor_info.GetElementType();
+        output_node_dims_[i] = tensor_info.GetShape();
+    }
+}
+
+bool EngineImplement::forward(const std::vector<const void*>& bindings, void* stream, void* input_consum_event) {
+   // 转换 bindings 为 Ort::Value 张量
+    std::vector<Ort::Value> input_tensors;
+    for (size_t i = 0; i < bindings.size(); ++i) {
+        const float* input_data = static_cast<const float*>(bindings[i]);
+        const std::vector<int64_t>& dims = input_node_dims_[i];
+
+        Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+            allocator_info_, const_cast<float*>(input_data),
+            numel(dims), dims.data(), dims.size());
+
+        input_tensors.emplace_back(std::move(input_tensor));
     }
 
-    printf("Outputs: %d\n", num_output);
-    for (int i = 0; i < num_output; ++i) {
-      const string& name = engine->getIOTensorName(i + num_input);
-      auto dim = engine->getTensorShape(name.c_str());
-      auto dtype = engine->getTensorDataType(name.c_str());
-      printf("\t%d.%s : {%s} [%s]\n", i, name.c_str(), format_shape(dim).c_str(), data_type_string(dtype));
-    }
-    printf("------------------------------------------------------\n");
-  }
-};
+    // 运行推理
+    auto output_tensors = session_.Run(
+        Ort::RunOptions{nullptr},
+        input_node_names_.data(),
+        input_tensors.data(),
+        input_tensors.size(),
+        output_node_names_.data(),
+        output_node_names_.size());
+
+    // 处理 output_tensors，根据需要将输出数据复制到 bindings 中
+
+    return true;
+}
 
 std::shared_ptr<Engine> load(const std::string &file) {
-  std::shared_ptr<EngineImplement> impl(new EngineImplement());
-  if (!impl->load(file)) impl.reset();
+  std::shared_ptr<EngineImplement> impl = std::make_shared<EngineImplement>(file);
+
   return impl;
 }
+
+// 实现其他方法...
 
 };  // namespace TensorRT

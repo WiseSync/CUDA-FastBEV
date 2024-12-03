@@ -69,27 +69,27 @@ class CoreImplement : public Core {
   std::vector<post::transbbox::BoundingBox> forward_timer(const void* camera_images, void* stream, bool do_normalization) {
     printf("==================FastBEV===================\n");
     std::vector<float> times;
-    cudaStream_t _stream = static_cast<cudaStream_t>(stream);
-    nvtype::half* normed_images = (nvtype::half*)camera_images;
+    //cudaStream_t _stream = static_cast<cudaStream_t>(stream);
+    nvtype::half* normed_images = nullptr;
     if (do_normalization) {
-      timer_.start(_stream);
+      timer_.start();
       normed_images = (nvtype::half*)this->normalizer_->forward((const unsigned char**)(camera_images), stream);
       timer_.stop("[NoSt] ImageNrom");
     }
 
-    timer_.start(_stream);
+    timer_.start();
     this->camera_backbone_->forward(normed_images, stream);
     times.emplace_back(timer_.stop("Camera Backbone"));
 
-    timer_.start(_stream);
+    timer_.start();
     nvtype::half* camera_bev = this->vtransform_->forward(this->camera_backbone_->feature(), stream);
     times.emplace_back(timer_.stop("BEV vision transform"));
 
-    timer_.start(_stream);
+    timer_.start();
     auto fusion_feature = this->fuse_head_->forward(camera_bev, stream);
     times.emplace_back(timer_.stop("BEV fuse head"));
 
-    timer_.start(_stream);
+    timer_.start();
     auto bbox = this->transbbox_->forward(fusion_feature, stream, param_.transbbox.sorted_bboxes);
     times.emplace_back(timer_.stop("BEV postprocess"));
 
@@ -119,7 +119,7 @@ class CoreImplement : public Core {
 
  private:
   CoreParameter param_;
-  nv::EventTimer timer_;
+  fastbev::EventTimer timer_;
   std::shared_ptr<pre::Normalization> normalizer_;
   std::shared_ptr<pre::Backbone> camera_backbone_;
   std::shared_ptr<pre::VTransform> vtransform_;

@@ -5,12 +5,12 @@
  * @Last Modified time: 2023-08-13 17:16:23
  */
 
-#include <cuda_fp16.h>
-#include <thrust/sequence.h>
-#include <thrust/sort.h>
-#include <thrust/transform.h>
-#include <thrust/host_vector.h>
-#include <thrust/device_vector.h>
+//#include <cuda_fp16.h>
+//#include <thrust/sequence.h>
+//#include <thrust/sort.h>
+//#include <thrust/transform.h>
+//#include <thrust/host_vector.h>
+//#include <thrust/device_vector.h>
 
 #include <algorithm>
 #include <numeric>
@@ -21,6 +21,10 @@
 #include "common/launch.cuh"
 #include "common/tensorrt.hpp"
 #include "postprecess.hpp"
+#include <common/dtype.hpp>
+#include <common/utils.hpp>
+
+using namespace nvtype;
 
 namespace fastbev {
 namespace post {
@@ -356,9 +360,10 @@ static std::vector<BoundingBox> box3d_multiclass_scale_nms(const float* mlvl_bbo
 class TransBBoxImplement : public TransBBox {
  public:
   virtual ~TransBBoxImplement() {
-    if (cls_scores_host_) checkRuntime(cudaFreeHost(cls_scores_host_));
-    if (bbox_preds_host_) checkRuntime(cudaFreeHost(bbox_preds_host_));
-    if (dir_cls_scores_host_) checkRuntime(cudaFreeHost(dir_cls_scores_host_));
+    //if (cls_scores_host_) checkRuntime(cudaFreeHost(cls_scores_host_));
+    //if (bbox_preds_host_) checkRuntime(cudaFreeHost(bbox_preds_host_));
+    //if (dir_cls_scores_host_) checkRuntime(cudaFreeHost(dir_cls_scores_host_));
+    if (mlvl_bboxes_for_nms_) fastbev::Utils::freeTensorMem(mlvl_bboxes_for_nms_);
   }
 
   virtual bool init(const TransBBoxParameter& param, std::vector<std::vector<int>> bingingshape) {
@@ -371,27 +376,31 @@ class TransBBoxImplement : public TransBBox {
 
 
     volumn_cls_scores_ = std::accumulate(cls_score_shape.begin(), cls_score_shape.end(), 1, std::multiplies<int32_t>());
-    checkRuntime(cudaMallocHost(&cls_scores_host_, volumn_cls_scores_ * sizeof(float)));
+    //checkRuntime(cudaMallocHost(&cls_scores_host_, volumn_cls_scores_ * sizeof(float)));
     volumn_bbox_preds_ = std::accumulate(bbox_preds_shape.begin(), bbox_preds_shape.end(), 1, std::multiplies<int32_t>());
-    checkRuntime(cudaMallocHost(&bbox_preds_host_, volumn_bbox_preds_ * sizeof(float)));
+    //checkRuntime(cudaMallocHost(&bbox_preds_host_, volumn_bbox_preds_ * sizeof(float)));
     volumn_dir_cls_scores_ = std::accumulate(dir_cls_scores_shape.begin(), dir_cls_scores_shape.end(), 1, std::multiplies<int32_t>());
-    checkRuntime(cudaMallocHost(&dir_cls_scores_host_, volumn_dir_cls_scores_ * sizeof(int32_t)));
-    checkRuntime(cudaMallocHost(&mlvl_bboxes_for_nms_, volumn_dir_cls_scores_ * 5 *sizeof(float)));
+    //checkRuntime(cudaMallocHost(&dir_cls_scores_host_, volumn_dir_cls_scores_ * sizeof(int32_t)));
+    mlvl_bboxes_for_nms_ = fastbev::Utils::allocTensorMem<float>(volumn_dir_cls_scores_ * 5 * sizeof(float));
+    //checkRuntime(cudaMallocHost(&mlvl_bboxes_for_nms_, volumn_dir_cls_scores_ * 5 *sizeof(float)));
 
     return true;
   }
 
   virtual std::vector<BoundingBox> forward(const BindingOut bindings, void* stream,
                                            bool sorted) override {
-    cudaStream_t _stream = static_cast<cudaStream_t>(stream);
+    //cudaStream_t _stream = static_cast<cudaStream_t>(stream);
     float* cls_scores = bindings.cls_scores;
     int32_t* dir_cls_scores = bindings.dir_cls_scores;
     float* bbox_preds = bindings.bbox_preds;
 
-    checkRuntime(cudaMemcpyAsync(dir_cls_scores_host_, dir_cls_scores, volumn_dir_cls_scores_ * sizeof(int32_t), cudaMemcpyDeviceToHost, _stream));
-    checkRuntime(cudaMemcpyAsync(cls_scores_host_, cls_scores, volumn_cls_scores_ * sizeof(float), cudaMemcpyDeviceToHost, _stream));
-    checkRuntime(cudaMemcpyAsync(bbox_preds_host_, bbox_preds, volumn_bbox_preds_ * sizeof(float), cudaMemcpyDeviceToHost, _stream));
-    checkRuntime(cudaStreamSynchronize(_stream));
+    //checkRuntime(cudaMemcpyAsync(dir_cls_scores_host_, dir_cls_scores, volumn_dir_cls_scores_ * sizeof(int32_t), cudaMemcpyDeviceToHost, _stream));
+   // checkRuntime(cudaMemcpyAsync(cls_scores_host_, cls_scores, volumn_cls_scores_ * sizeof(float), cudaMemcpyDeviceToHost, _stream));
+    //checkRuntime(cudaMemcpyAsync(bbox_preds_host_, bbox_preds, volumn_bbox_preds_ * sizeof(float), cudaMemcpyDeviceToHost, _stream));
+    int32_t* dir_cls_scores_host_ = dir_cls_scores;
+    float* cls_scores_host_ = cls_scores;
+    float* bbox_preds_host_ = bbox_preds;
+    //checkRuntime(cudaStreamSynchronize(_stream));
 
  
     for(unsigned int i=0;i<volumn_dir_cls_scores_;i++){
@@ -412,9 +421,9 @@ class TransBBoxImplement : public TransBBox {
  private:
   TransBBoxParameter param_;
   int num_classes_ = 0;
-  float* cls_scores_host_ = nullptr;
-  float* bbox_preds_host_ = nullptr;
-  int32_t* dir_cls_scores_host_ = nullptr;
+  //float* cls_scores_host_ = nullptr;
+  //float* bbox_preds_host_ = nullptr;
+  //int32_t* dir_cls_scores_host_ = nullptr;
   unsigned int volumn_cls_scores_ = 0;
   unsigned int volumn_bbox_preds_ = 0;
   unsigned int volumn_dir_cls_scores_ = 0;

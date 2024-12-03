@@ -25,7 +25,7 @@
 #define __CHECK_HPP__
 
 #include <assert.h>
-#include <cuda_runtime.h>
+//#include <cuda_runtime.h>
 #include <stdarg.h>
 #include <stdio.h>
 
@@ -84,7 +84,7 @@ namespace nv {
     }                                                                                    \
   } while (false)
 
-static inline bool check_runtime(cudaError_t e, const char *call, int line, const char *file) {
+/* static inline bool check_runtime(cudaError_t e, const char *call, int line, const char *file) {
   if (e != cudaSuccess) {
     fprintf(stderr,
             "CUDA Runtime error %s # %s, code = %s [ %d ] in file "
@@ -94,7 +94,7 @@ static inline bool check_runtime(cudaError_t e, const char *call, int line, cons
     return false;
   }
   return true;
-}
+} */
 
 };  // namespace nv
 

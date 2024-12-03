@@ -21,8 +21,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#include <cuda_fp16.h>
-#include <cuda_runtime.h>
+//#include <cuda_fp16.h>
+//#include <cuda_runtime.h>
 #include <string.h>
 
 #include <algorithm>
@@ -32,6 +32,9 @@
 #include "check.hpp"
 #include "launch.cuh"
 #include "tensor.hpp"
+#include "utils.hpp"   
+#include <sstream> 
+#include <iostream>
 
 namespace nv {
 
@@ -117,8 +120,8 @@ static inline float _native_half2float(const unsigned short h) {
   return f;
 }
 
-template <typename _T>
-static __global__ void arange_kernel_device(size_t num, _T* pdata) {
+/* template <typename _T>
+static void arange_kernel_device(size_t num, _T* pdata) {
   int index = cuda_linear_index;
   if (index < num) {
     pdata[index] = index;
@@ -130,13 +133,13 @@ static void arange_kernel_host(size_t num, _T* pdata) {
   for (size_t index = 0; index < num; ++index) pdata[index] = index;
 }
 
-template <>
-void arange_kernel_host<half>(size_t num, half* pdata) {
-  for (size_t index = 0; index < num; ++index) pdata[index] = half((int)index);
-}
+// template <>
+// void arange_kernel_host<half>(size_t num, half* pdata) {
+//   for (size_t index = 0; index < num; ++index) pdata[index] = half((int)index);
+// }
 
 template <typename _AData, typename _BData>
-static __global__ void any_to_any_device(size_t num, _AData* input, _BData* output) {
+static void any_to_any_device(size_t num, _AData* input, _BData* output) {
   int index = cuda_linear_index;
   if (index < num) {
     output[index] = input[index];
@@ -144,7 +147,7 @@ static __global__ void any_to_any_device(size_t num, _AData* input, _BData* outp
 }
 
 template <typename _BData>
-static __global__ void any_to_any_device(size_t num, int64_t* input, _BData* output) {
+static void any_to_any_device(size_t num, int64_t* input, _BData* output) {
   int index = cuda_linear_index;
   if (index < num) {
     output[index] = (int)input[index];
@@ -152,37 +155,35 @@ static __global__ void any_to_any_device(size_t num, int64_t* input, _BData* out
 }
 
 template <typename _BData>
-static __global__ void any_to_any_device(size_t num, uint64_t* input, _BData* output) {
+static void any_to_any_device(size_t num, uint64_t* input, _BData* output) {
   int index = cuda_linear_index;
   if (index < num) {
     output[index] = (int)input[index];
   }
-}
+} */
 
 template <>
 std::string format_shape(const std::vector<int64_t>& shape) {
-  char buf[200] = {0};
-  char* p = buf;
-  for (size_t i = 0; i < shape.size(); ++i) {
+std::stringstream ss;
+for (size_t i = 0; i < shape.size(); ++i) {
     if (i + 1 < shape.size())
-      p += sprintf(p, "%ld x ", shape[i]);
+        ss << shape[i] << " x ";
     else
-      p += sprintf(p, "%ld", shape[i]);
-  }
-  return buf;
+        ss << shape[i];
+}
+return ss.str();
 }
 
 template <>
 std::string format_shape(const std::vector<int>& shape) {
-  char buf[200] = {0};
-  char* p = buf;
-  for (size_t i = 0; i < shape.size(); ++i) {
+std::stringstream ss;
+for (size_t i = 0; i < shape.size(); ++i) {
     if (i + 1 < shape.size())
-      p += sprintf(p, "%d x ", shape[i]);
+        ss << shape[i] << " x ";
     else
-      p += sprintf(p, "%d", shape[i]);
-  }
-  return buf;
+        ss << shape[i];
+}
+return ss.str();
 }
 
 template <typename T>
@@ -251,11 +252,12 @@ TensorData::~TensorData() { TensorData::free(); }
 
 void TensorData::free() {
   if (data && owner) {
-    if (device) {
+/*     if (device) {
       checkRuntime(cudaFree(data));
     } else {
       checkRuntime(cudaFreeHost(data));
-    }
+    } */
+    fastbev::Utils::freeTensorMem(data);
   }
   data = nullptr;
   owner = false;
@@ -290,10 +292,11 @@ TensorData* TensorData::create(size_t bytes, DataType dtype, bool device) {
   output->bytes = bytes;
   output->device = device;
 
-  if (device)
+/*   if (device)
     checkRuntime(cudaMalloc(&output->data, bytes));
   else
-    checkRuntime(cudaMallocHost(&output->data, bytes));
+    checkRuntime(cudaMallocHost(&output->data, bytes)); */
+    output->data = fastbev::Utils::allocTensorMem<float>(bytes);
   return output;
 }
 
@@ -347,11 +350,12 @@ void Tensor::reference(void* data, vector<int32_t> shape, DataType dtype, bool d
 
 Tensor Tensor::from_data(void* data, vector<int64_t> shape, DataType dtype, bool device, void* stream) {
   Tensor output = Tensor::create(shape, dtype, device);
-  if (device) {
+/*   if (device) {
     checkRuntime(cudaMemcpyAsync(output.ptr(), data, output.bytes(), cudaMemcpyDeviceToDevice, (cudaStream_t)stream));
   } else {
     checkRuntime(cudaMemcpyAsync(output.ptr(), data, output.bytes(), cudaMemcpyHostToHost, (cudaStream_t)stream));
-  }
+  } */
+ std::memcpy(output.ptr(), data, output.bytes());
   return output;
 }
 
@@ -370,49 +374,49 @@ Tensor Tensor::from_data_reference(void* data, vector<int32_t> shape, DataType d
 }
 
 void Tensor::to_device_(void* stream_) {
-  cudaStream_t stream = (cudaStream_t)stream_;
+/*   cudaStream_t stream = (cudaStream_t)stream_;
   if (!this->device() && !this->empty()) {
     shared_ptr<TensorData> newdata(TensorData::create(this->bytes(), this->dtype(), true));
     checkRuntime(cudaMemcpyAsync(newdata->data, this->ptr(), this->bytes(), cudaMemcpyHostToDevice, stream));
     checkRuntime(cudaStreamSynchronize(stream));
     this->data = newdata;
-  }
+  } */
 }
 
 Tensor Tensor::to_device(void* stream_) const {
-  if (!this->device() && !this->empty()) {
+  /* if (!this->device() && !this->empty()) {
     cudaStream_t stream = (cudaStream_t)stream_;
     Tensor output(shape, this->dtype(), true);
     checkRuntime(cudaMemcpyAsync(output.ptr(), this->ptr(), this->bytes(), cudaMemcpyHostToDevice, stream));
     checkRuntime(cudaStreamSynchronize(stream));
     return output;
-  }
+  } */
   return *this;
 }
 
 void Tensor::to_host_(void* stream_) {
-  cudaStream_t stream = (cudaStream_t)stream_;
+  /* cudaStream_t stream = (cudaStream_t)stream_;
   if (this->device() && !this->empty()) {
     shared_ptr<TensorData> newdata(TensorData::create(this->bytes(), this->dtype(), false));
     checkRuntime(cudaMemcpyAsync(newdata->data, this->ptr(), this->bytes(), cudaMemcpyDeviceToHost, stream));
     checkRuntime(cudaStreamSynchronize(stream));
     this->data = newdata;
-  }
+  } */
 }
 
 Tensor Tensor::to_host(void* stream_) const {
-  if (this->device() && !this->empty()) {
+  /* if (this->device() && !this->empty()) {
     cudaStream_t stream = (cudaStream_t)stream_;
     Tensor output(shape, this->dtype(), false);
     checkRuntime(cudaMemcpyAsync(output.ptr(), this->ptr(), this->bytes(), cudaMemcpyDeviceToHost, stream));
     checkRuntime(cudaStreamSynchronize(stream));
     return output;
-  }
+  } */
   return *this;
 }
 
 void Tensor::arange(void* _stream) {
-  if (this->empty()) return;
+  /* if (this->empty()) return;
 
   cudaStream_t stream = (cudaStream_t)_stream;
   if (this->device()) {
@@ -420,17 +424,18 @@ void Tensor::arange(void* _stream) {
                       [&] { cuda_linear_launch(arange_kernel_device, stream, this->numel, this->ptr<scalar_t>()); });
   } else {
     DISPATCH_BY_TYPES(this->dtype(), [&] { arange_kernel_host(this->numel, this->ptr<scalar_t>()); });
-  }
+  } */
 }
 
 void Tensor::memset(unsigned char value, void* stream) {
   if (this->empty()) return;
 
-  if (this->device()) {
+/*   if (this->device()) {
     checkRuntime(cudaMemsetAsync(this->ptr(), value, this->bytes(), (cudaStream_t)stream));
   } else {
     ::memset(this->ptr(), value, this->bytes());
-  }
+  } */
+ ::memset(this->ptr(), value, this->bytes());
 }
 
 Tensor Tensor::load(const std::string& file, bool device) {
@@ -477,12 +482,13 @@ Tensor Tensor::load(const std::string& file, bool device) {
   fclose(f);
 
   Tensor output = Tensor::create(shape, dtype, device);
-  if (device) {
+  /* if (device) {
     checkRuntime(cudaMemcpy(output.ptr(), host_data.data(), bytes, cudaMemcpyHostToDevice));
   } else {
     checkRuntime(cudaMemcpy(output.ptr(), host_data.data(), bytes, cudaMemcpyHostToHost));
   }
-  checkRuntime(cudaDeviceSynchronize());
+  checkRuntime(cudaDeviceSynchronize()); */
+  std::memcpy(output.ptr(), host_data.data(), bytes);
   return output;
 }
 
@@ -497,7 +503,8 @@ void Tensor::print(const char* prefix, size_t offset, size_t num_per_line, size_
   shared_ptr<TensorData> tensor_data = this->data;
   if (this->device()) {
     tensor_data = shared_ptr<TensorData>(TensorData::create(this->bytes(), this->dtype(), false));
-    checkRuntime(cudaMemcpy(tensor_data->data, this->ptr(), this->bytes(), cudaMemcpyDeviceToHost));
+    std::memcpy(tensor_data->data, this->ptr(), this->bytes());
+    //checkRuntime(cudaMemcpy(tensor_data->data, this->ptr(), this->bytes(), cudaMemcpyDeviceToHost));
   }
 
   size_t num_print = min(lines * num_per_line, numel);
@@ -518,7 +525,8 @@ void Tensor::print(const char* prefix, size_t offset, size_t num_per_line, size_
     }
   } else if (this->dtype() == DataType::Int64 || this->dtype() == DataType::UInt64) {
     for (size_t i = 0; i < num_print; ++i) {
-      printf("%ld ", *((int64_t*)tensor_data->data + offset + i));
+      //printf("%ld ", *((int64_t*)tensor_data->data + offset + i));
+      std::cout<<*((int64_t*)tensor_data->data + offset + i)<<" ";
       if ((i + 1) % num_per_line == 0) printf("\n");
     }
   } else if (this->dtype() == DataType::Int16 || this->dtype() == DataType::UInt16) {
@@ -533,45 +541,51 @@ void Tensor::print(const char* prefix, size_t offset, size_t num_per_line, size_
 void Tensor::copy_from_host(const void* data, void* stream) {
   if (this->empty()) return;
 
-  cudaStream_t _stream = static_cast<cudaStream_t>(stream);
-  if (this->device()) {
-    checkRuntime(cudaMemcpyAsync(this->ptr(), data, this->bytes(), cudaMemcpyHostToDevice, _stream));
-  } else {
-    checkRuntime(cudaMemcpyAsync(this->ptr(), data, this->bytes(), cudaMemcpyHostToHost, _stream));
-  }
+//   cudaStream_t _stream = static_cast<cudaStream_t>(stream);
+//   if (this->device()) {
+//     checkRuntime(cudaMemcpyAsync(this->ptr(), data, this->bytes(), cudaMemcpyHostToDevice, _stream));
+//   } else {
+//     checkRuntime(cudaMemcpyAsync(this->ptr(), data, this->bytes(), cudaMemcpyHostToHost, _stream));
+//   }
+    std::memcpy(this->ptr(), data, this->bytes());
 }
 
 void Tensor::copy_from_device(const void* data, void* stream) {
   if (this->empty()) return;
 
-  cudaStream_t _stream = static_cast<cudaStream_t>(stream);
-  if (this->device()) {
-    checkRuntime(cudaMemcpyAsync(this->ptr(), data, this->bytes(), cudaMemcpyDeviceToDevice, _stream));
-  } else {
-    checkRuntime(cudaMemcpyAsync(this->ptr(), data, this->bytes(), cudaMemcpyDeviceToHost, _stream));
-  }
+//   cudaStream_t _stream = static_cast<cudaStream_t>(stream);
+//   if (this->device()) {
+//     checkRuntime(cudaMemcpyAsync(this->ptr(), data, this->bytes(), cudaMemcpyDeviceToDevice, _stream));
+//   } else {
+//     checkRuntime(cudaMemcpyAsync(this->ptr(), data, this->bytes(), cudaMemcpyDeviceToHost, _stream));
+//   }
+    std::memcpy(this->ptr(), data, this->bytes());
 }
 
 Tensor Tensor::clone(void* _stream) const {
   Tensor output = *this;
-  cudaStream_t stream = (cudaStream_t)_stream;
-  if (this->device() && !this->empty()) {
-    shared_ptr<TensorData> newdata(TensorData::create(this->bytes(), this->dtype(), true));
-    checkRuntime(cudaMemcpyAsync(newdata->data, this->ptr(), this->bytes(), cudaMemcpyDeviceToDevice, stream));
-    checkRuntime(cudaStreamSynchronize(stream));
-    output.data = newdata;
-  } else if (!this->device() && !this->empty()) {
+//   cudaStream_t stream = (cudaStream_t)_stream;
+//   if (this->device() && !this->empty()) {
+//     shared_ptr<TensorData> newdata(TensorData::create(this->bytes(), this->dtype(), true));
+//     checkRuntime(cudaMemcpyAsync(newdata->data, this->ptr(), this->bytes(), cudaMemcpyDeviceToDevice, stream));
+//     checkRuntime(cudaStreamSynchronize(stream));
+//     output.data = newdata;
+//   } else if (!this->device() && !this->empty()) {
+//     shared_ptr<TensorData> newdata(TensorData::create(this->bytes(), this->dtype(), false));
+//     checkRuntime(cudaMemcpyAsync(newdata->data, this->ptr(), this->bytes(), cudaMemcpyHostToHost, stream));
+//     checkRuntime(cudaStreamSynchronize(stream));
+//     output.data = newdata;
+//   }
     shared_ptr<TensorData> newdata(TensorData::create(this->bytes(), this->dtype(), false));
-    checkRuntime(cudaMemcpyAsync(newdata->data, this->ptr(), this->bytes(), cudaMemcpyHostToHost, stream));
-    checkRuntime(cudaStreamSynchronize(stream));
+    std::memcpy(newdata->data, this->ptr(), this->bytes());
     output.data = newdata;
-  }
+
   return output;
 }
 
 Tensor Tensor::to_half(void* _stream) const {
-  Tensor output;
-  cudaStream_t stream = (cudaStream_t)_stream;
+  /*Tensor output;
+   cudaStream_t stream = (cudaStream_t)_stream;
 
   if (this->empty()) return output;
   if (this->dtype() == DataType::Float16) return this->clone(stream);
@@ -584,12 +598,14 @@ Tensor Tensor::to_half(void* _stream) const {
   DISPATCH_BY_TYPES(this->dtype(), [&] {
     cuda_linear_launch(any_to_any_device, stream, this->numel, this->ptr<scalar_t>(), output.ptr<half>());
     checkRuntime(cudaStreamSynchronize(stream));
-  });
-  return output;
+  }); 
+  return output;*/
+
+  return this->clone(_stream);
 }
 
 Tensor Tensor::to_float(void* _stream) const {
-  Tensor output;
+/*   Tensor output;
   cudaStream_t stream = (cudaStream_t)_stream;
 
   if (this->empty()) return output;
@@ -604,11 +620,13 @@ Tensor Tensor::to_float(void* _stream) const {
     cuda_linear_launch(any_to_any_device, stream, this->numel, this->ptr<scalar_t>(), output.ptr<float>());
     checkRuntime(cudaStreamSynchronize(stream));
   });
-  return output;
+  return output; */
+
+  return this->clone(_stream);
 }
 
 bool Tensor::save(const std::string& file, void* stream_) const {
-  cudaStream_t stream = (cudaStream_t)stream_;
+  //cudaStream_t stream = (cudaStream_t)stream_;
   FILE* f = fopen(file.c_str(), "wb");
   if (f == nullptr) {
     printf("Failed to open %s\n", file.c_str());
@@ -622,14 +640,16 @@ bool Tensor::save(const std::string& file, void* stream_) const {
   fwrite(head, 1, sizeof(head), f);
   fwrite(dims, 1, this->shape.size() * sizeof(int), f);
 
-  if (this->device()) {
-    std::vector<char> host_data(this->bytes());
-    checkRuntime(cudaMemcpyAsync(host_data.data(), this->ptr(), this->bytes(), cudaMemcpyDeviceToHost, stream));
-    checkRuntime(cudaStreamSynchronize(stream));
+/*   if (this->device()) {
+    //std::vector<char> host_data(this->bytes());
+    //checkRuntime(cudaMemcpyAsync(host_data.data(), this->ptr(), this->bytes(), cudaMemcpyDeviceToHost, stream));
+    //checkRuntime(cudaStreamSynchronize(stream));
     fwrite(host_data.data(), 1, this->bytes(), f);
   } else {
     fwrite(this->ptr(), 1, this->bytes(), f);
-  }
+  } */
+
+  fwrite(this->ptr(), 1, this->bytes(), f);
   fclose(f);
   return true;
 }

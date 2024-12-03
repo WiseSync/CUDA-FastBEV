@@ -47,12 +47,16 @@ struct Float2 {
   Float2(float x, float y = 0) : x(x), y(y) {}
 };
 
+using float2 = Float2;
+
 struct Float3 {
   float x, y, z;
 
   Float3() = default;
   Float3(float x, float y = 0, float z = 0) : x(x), y(y), z(z) {}
 };
+
+using float3 = Float3;
 
 struct Float4 {
   float x, y, z, w;
@@ -61,10 +65,25 @@ struct Float4 {
   Float4(float x, float y = 0, float z = 0, float w = 0) : x(x), y(y), z(z), w(w) {}
 };
 
+using float4 = Float4;
+
 // It is only used to specify the type only, while hoping to avoid header file contamination.
-typedef struct {
-  unsigned short __x;
-} half;
+using half = uint16_t;
+
+struct half3 {
+  nvtype::half x, y, z;
+
+  half3(): x(0), y(0), z(0) {}
+  half3(half x, half y, half z) : x(x), y(y), z(z) {}
+};
+
+struct uchar3 {
+  uint8_t x, y, z;
+
+
+  uchar3(): x(0), y(0), z(0) {}
+  uchar3(uint8_t x, uint8_t y, uint8_t z) : x(x), y(y), z(z) {}
+};
 
 };  // namespace nvtype
 
